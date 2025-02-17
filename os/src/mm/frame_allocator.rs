@@ -14,6 +14,7 @@ pub struct FrameTracker {
     pub ppn: PhysPageNum,
 }
 
+/// 把physpagenum包装成framtracker
 impl FrameTracker {
     /// Create a new FrameTracker
     pub fn new(ppn: PhysPageNum) -> Self {
@@ -38,6 +39,7 @@ impl Drop for FrameTracker {
     }
 }
 
+/// 全局实例
 trait FrameAllocator {
     fn new() -> Self;
     fn alloc(&mut self) -> Option<PhysPageNum>;
@@ -57,14 +59,19 @@ impl StackFrameAllocator {
         // trace!("last {} Physical Frames.", self.end - self.current);
     }
 }
+
+///分配和回收物理页面
 impl FrameAllocator for StackFrameAllocator {
     fn new() -> Self {
         Self {
             current: 0,
             end: 0,
-            recycled: Vec::new(),
+            recycled: Vec::new(),//栈，用于保存回收的页面
         }
     }
+    /// 如果回收栈里有ppn，则弹出一个ppn，调用into转换成PhysPageNum
+    /// 如果当前页面已经等于end，说明已经分配完了
+    /// 否则，当前页面+=1表示分配了一个新的页面。
     fn alloc(&mut self) -> Option<PhysPageNum> {
         if let Some(ppn) = self.recycled.pop() {
             Some(ppn.into())
@@ -75,9 +82,11 @@ impl FrameAllocator for StackFrameAllocator {
             Some((self.current - 1).into())
         }
     }
+    /// 回收已经分配的物理页面，将页面标记为不再使用，并放回 recycled 栈中
+    /// 
     fn dealloc(&mut self, ppn: PhysPageNum) {
-        let ppn = ppn.0;
-        // validity check
+        let ppn = ppn.0;//ppn.0是存页号的字段，先取出来
+        // validity check：1. ppn是否大于等于当前页面，即有没有分配过。2. 回收栈里是否已经有了该ppn。
         if ppn >= self.current || self.recycled.iter().any(|&v| v == ppn) {
             panic!("Frame ppn={:#x} has not been allocated!", ppn);
         }
@@ -93,6 +102,9 @@ lazy_static! {
     pub static ref FRAME_ALLOCATOR: UPSafeCell<FrameAllocatorImpl> =
         unsafe { UPSafeCell::new(FrameAllocatorImpl::new()) };
 }
+
+///---------------公开给其他子模块调用的分配/回收物理页帧的接口
+
 /// initiate the frame allocator using `ekernel` and `MEMORY_END`
 pub fn init_frame_allocator() {
     extern "C" {
@@ -105,9 +117,10 @@ pub fn init_frame_allocator() {
 }
 
 /// Allocate a physical page frame in FrameTracker style
+/// 注意到，外部函数访问的时候获得的并不是PhysPageNum，而是包装成FrameTracker
 pub fn frame_alloc() -> Option<FrameTracker> {
     FRAME_ALLOCATOR
-        .exclusive_access()
+        .exclusive_access()// exclusive_access：排他性访问
         .alloc()
         .map(FrameTracker::new)
 }
