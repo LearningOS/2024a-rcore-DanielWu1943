@@ -16,6 +16,7 @@ mod task;
 
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_us;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -79,6 +80,9 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        if next_task.start_time.is_none() {
+            next_task.start_time = Some(get_time_us());
+        }
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -90,8 +94,20 @@ impl TaskManager {
     }
 
     /// Get current task
-    fn get_current_task() {
-        
+    pub fn get_current_task(&self) -> TaskControlBlock {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].clone() // 返回当前任务的克隆
+    }
+
+    ///update syscall times += 1
+    pub fn update_syscall_times(&self, syscall_id: usize) {
+        if syscall_id >= MAX_SYSCALL_NUM {
+            return;
+        }
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[syscall_id] += 1;
     }
 
     /// Change the status of current `Running` task into `Ready`.
@@ -145,6 +161,9 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            if inner.tasks[next].start_time.is_none() {
+                inner.tasks[next].start_time = Some(get_time_us());
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -163,6 +182,18 @@ impl TaskManager {
 /// Run the first task in task list.
 pub fn run_first_task() {
     TASK_MANAGER.run_first_task();
+}
+
+
+/// Get current task
+pub fn get_current_task() {
+    TASK_MANAGER.get_current_task();
+}
+
+
+/// Update syscall times
+pub fn update_syscall_times(syscall_id:usize) {
+    TASK_MANAGER.update_syscall_times(syscall_id);
 }
 
 /// Switch current `Running` task to the task we have found,

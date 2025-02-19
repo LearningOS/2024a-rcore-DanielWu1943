@@ -11,7 +11,7 @@ use crate::task::current_user_token;
 use crate::{
     config::{MAX_SYSCALL_NUM, PAGE_SIZE},
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
+        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, TASK_MANAGER,
     },
     timer::get_time_us,
 };
@@ -95,11 +95,21 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     if let Some(start_time) = task.start_time {
         let elapsed_time_ms = (time_sys_call - start_time) / 1000; // 计算时间差（单位：毫秒）
         
-        // 填充任务信息到 _ti 结构体中
-        unsafe {
-            (*_ti).status = task_status;          // 任务状态
-            (*_ti).syscall_times = syscall_times; // 系统调用次数
-            (*_ti).time = elapsed_time_ms;       // 系统调用时刻到任务第一次调度的时长
+        // 构建 TaskInfo
+        let task_info = TaskInfo {
+            status: task_status,           // 任务状态
+            syscall_times,                 // 系统调用次数
+            time: elapsed_time_ms,         // 从任务第一次调度到当前的时间差
+        };
+        let buffers = translated_byte_buffer(current_user_token(), _ti as *const u8, size_of::<TaskInfo>());
+        let mut task_info_ptr = &task_info as *const _ as *const u8;
+
+        // 遍历缓冲区，将 TaskInfo 数据写入
+        for buffer in buffers {
+            unsafe {
+                task_info_ptr.copy_to(buffer.as_mut_ptr(), buffer.len());
+                task_info_ptr = task_info_ptr.add(buffer.len());
+            }
         }
     } else {
         // 如果 start_time 为 None，任务尚未开始，进行相应处理
@@ -116,7 +126,7 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
 /// sys_mmap是申请一块物理内存并将其映射到指定的虚拟地址范围，首先得申请物理内存
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!("kernel: sys_mmap");
-
+    /* 
     // 1. 申请物理内存
     let num_page = (_len + PAGE_SIZE - 1) / PAGE_SIZE;
     let mut physical_memory = Vec::new();
@@ -145,13 +155,14 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         page_table.insert_framed_area(current_start_va, next_start_va, permission);
         
         current_start_va = next_start_va;  // 更新虚拟地址，映射下一页
-    }
+    }*/
     0
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap!");
+    /* 
     let mut memory_set = current_user_token();
     // 1. 遍历 areas 找到对应的 map_area
     let mut found = false;
@@ -180,7 +191,8 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
         0 // 成功取消映射
     } else {
         -1 // 未找到对应的映射区域
-    }
+    }*/
+    0
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
