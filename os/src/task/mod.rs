@@ -89,6 +89,11 @@ impl TaskManager {
         panic!("unreachable in run_first_task!");
     }
 
+    /// Get current task
+    fn get_current_task() {
+        
+    }
+
     /// Change the status of current `Running` task into `Ready`.
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
