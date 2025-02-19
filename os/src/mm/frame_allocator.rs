@@ -117,7 +117,7 @@ pub fn init_frame_allocator() {
 }
 
 /// Allocate a physical page frame in FrameTracker style
-/// 注意到，外部函数访问的时候获得的并不是PhysPageNum，而是包装成FrameTracker
+/// 注意到，外部函数访问的时候获得的并不是PhysPageNum，而是包装成FrameTracker，它是分配了一页物理页，每一页是固定长度。
 pub fn frame_alloc() -> Option<FrameTracker> {
     FRAME_ALLOCATOR
         .exclusive_access()// exclusive_access：排他性访问

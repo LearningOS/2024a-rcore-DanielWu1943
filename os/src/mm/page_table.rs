@@ -1,9 +1,12 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
-
+/// 实现了一个page table，包括：页面表项PageTableEntry和PageTable页面表。
+/// PageTableEntry：PTE，存储虚拟页和物理页之间的映射关系，包括以下几个部分：PPN（物理页号）虚拟页对应的物理页号；PTEFlags（权限信息等标志）：是否可写等；
+/// PageTable：是多个PTE的集合，用来管理一整段虚拟地址空间的映射关系。包括两个部分：根物理页号，表示该页表的起始地址。frames: Vec<FrameTracker>，其管理的物理页帧。
 use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
+
 
 bitflags! {
     /// page table entry flags
@@ -66,8 +69,8 @@ impl PageTableEntry {
 
 /// page table structure
 pub struct PageTable {
-    root_ppn: PhysPageNum,
-    frames: Vec<FrameTracker>,
+    root_ppn: PhysPageNum,//根物理页号
+    frames: Vec<FrameTracker>,//FrameTracker 类型的向量，用于追踪分配的物理内存页
 }
 
 /// Assume that it won't oom when creating/mapping.
@@ -88,6 +91,7 @@ impl PageTable {
         }
     }
     /// Find PageTableEntry by VirtPageNum, create a frame for a 4KB page table if not exist
+    /// 根据虚拟页号（vpn）查找页面表项。如果没有找到相关页面表项，会为其分配一个新的页面。
     fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
@@ -108,6 +112,7 @@ impl PageTable {
         result
     }
     /// Find PageTableEntry by VirtPageNum
+    /// 根据虚拟页号查找页面表项，如果不存在，则返回 None
     fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
@@ -125,21 +130,21 @@ impl PageTable {
         }
         result
     }
-    /// set the map between virtual page number and physical page number
+    /// set the map between virtual page number and physical page number：将虚拟页号映射到物理页号
     #[allow(unused)]
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
         let pte = self.find_pte_create(vpn).unwrap();
         assert!(!pte.is_valid(), "vpn {:?} is mapped before mapping", vpn);
         *pte = PageTableEntry::new(ppn, flags | PTEFlags::V);
     }
-    /// remove the map between virtual page number and physical page number
+    /// remove the map between virtual page number and physical page number：解除虚拟页号到物理页号的映射
     #[allow(unused)]
     pub fn unmap(&mut self, vpn: VirtPageNum) {
         let pte = self.find_pte(vpn).unwrap();
         assert!(pte.is_valid(), "vpn {:?} is invalid before unmapping", vpn);
         *pte = PageTableEntry::empty();
     }
-    /// get the page table entry from the virtual page number
+    /// get the page table entry from the virtual page number：根据虚拟页号查找并返回对应的页面表项
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.find_pte(vpn).map(|pte| *pte)
     }
@@ -150,6 +155,7 @@ impl PageTable {
 }
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
+/// 通过页面表将虚拟地址映射到物理地址，输入：页表的token，表示当前app的虚拟页表，虚拟地址的起始地址，虚拟地址长度
 pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {
     let page_table = PageTable::from_token(token);
     let mut start = ptr as usize;

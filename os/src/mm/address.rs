@@ -1,4 +1,6 @@
 //! Implementation of physical and virtual address and page number.
+///PhysAddr：一个物理地址；VirtAdds：一个虚拟地址。PhysPageNum 和 VirtPageNum 分别代表物理页号和虚拟页号
+/// 
 use super::PageTableEntry;
 use crate::config::{PAGE_SIZE, PAGE_SIZE_BITS};
 use core::fmt::{self, Debug, Formatter};
@@ -93,6 +95,7 @@ impl From<VirtPageNum> for usize {
     }
 }
 /// virtual address impl
+/// 通过 floor() 和 ceil() 方法可以获取地址对应的页号。例如，floor() 返回当前地址所在页的页号，ceil() 返回该地址所在页的上一个页号。
 impl VirtAddr {
     /// Get the (floor) virtual page number
     pub fn floor(&self) -> VirtPageNum {
@@ -177,11 +180,14 @@ impl PhysAddr {
 }
 impl PhysPageNum {
     /// Get the reference of page table(array of ptes)
+    /// 用于通过物理页号获取相应的页表项数组
+    /// 页表项数组：即PPN和valid flag
     pub fn get_pte_array(&self) -> &'static mut [PageTableEntry] {
         let pa: PhysAddr = (*self).into();
         unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut PageTableEntry, 512) }
     }
     /// Get the reference of page(array of bytes)
+    /// 物理内存页中的实际数据：4kb
     pub fn get_bytes_array(&self) -> &'static mut [u8] {
         let pa: PhysAddr = (*self).into();
         unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut u8, 4096) }

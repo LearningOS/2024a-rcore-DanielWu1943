@@ -1,5 +1,6 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
-
+/// MemorySet：用来表示一个 地址空间，它有两个属性page_table：地址空间的页表集合；areas：映射的虚拟地址区域
+/// 比如有个新的app，那么先创建一个MemorySet，然后使用 insert_framed_area 插入虚拟地址区域，激活 MemorySet
 use super::{frame_alloc, FrameTracker};
 use super::{PTEFlags, PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
