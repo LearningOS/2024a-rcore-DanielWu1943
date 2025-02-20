@@ -11,13 +11,16 @@
 //! It then calls different functionality based on what exactly the exception
 //! was. For example, timer interrupts trigger task preemption, and syscalls go
 //! to [`syscall()`].
+//! 设置内核和用户空间的异常处理入口。
+//! 根据不同类型的异常（系统调用、内存错误、非法指令、定时器中断等）采取不同的处理措施。
+//! 从内核安全地切换回用户空间，恢复用户程序的执行状态。
 
 mod context;
 
 use crate::config::{TRAMPOLINE, TRAP_CONTEXT_BASE};
 use crate::syscall::syscall;
 use crate::task::{
-    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
+    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, update_syscall_times,
 };
 use crate::timer::set_next_trigger;
 use core::arch::{asm, global_asm};
@@ -39,7 +42,7 @@ fn set_kernel_trap_entry() {
         stvec::write(trap_from_kernel as usize, TrapMode::Direct);
     }
 }
-
+///通过修改 RISC-V 的 stvec 寄存器来指定发生异常时应该跳转到用户空间的异常处理程序。
 fn set_user_trap_entry() {
     unsafe {
         stvec::write(TRAMPOLINE as usize, TrapMode::Direct);
@@ -54,6 +57,7 @@ pub fn enable_timer_interrupt() {
 }
 
 /// trap handler
+/// 对每种终端做出不同的响应：
 #[no_mangle]
 pub fn trap_handler() -> ! {
     set_kernel_trap_entry();
@@ -66,6 +70,7 @@ pub fn trap_handler() -> ! {
             // jump to next instruction anyway
             cx.sepc += 4;
             // get system call return value
+            update_syscall_times(cx.x[17]);
             cx.x[10] = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]) as usize;
         }
         Trap::Exception(Exception::StoreFault)

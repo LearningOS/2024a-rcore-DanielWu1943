@@ -7,6 +7,7 @@ use crate::mm::{
 use crate::trap::{trap_handler, TrapContext};
 
 /// The task control block (TCB) of a task.
+
 pub struct TaskControlBlock {
     /// Save task context
     pub task_cx: TaskContext,
@@ -32,8 +33,10 @@ pub struct TaskControlBlock {
     /// The number of syscall time
     pub syscall_times: [u32; MAX_SYSCALL_NUM],
 
-    /// Total running time of task
-    pub start_time: Option<usize>,
+    /// Kernel time of task
+    pub kernel_time: usize,
+    /// User time of task
+    pub user_time: usize,
 }
 
 impl TaskControlBlock {
@@ -70,7 +73,8 @@ impl TaskControlBlock {
             heap_bottom: user_sp,
             program_brk: user_sp,
             syscall_times: [0; MAX_SYSCALL_NUM],
-            start_time: None,
+            user_time: 0,
+            kernel_time: 0,
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();

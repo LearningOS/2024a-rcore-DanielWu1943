@@ -14,12 +14,15 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, PageTableEntry, VirtAddr, VirtPageNum, VPNRange};
 use crate::sync::UPSafeCell;
-use crate::timer::get_time_us;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
+//use riscv::paging::PageTableEntry;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
@@ -47,7 +50,20 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+    ///record time point
+    checkpoint: usize,
 }
+
+
+impl TaskManagerInner {
+    ///update checkpoint 
+    fn update_checkpoint(&mut self) -> usize{
+        let prev_point = self.checkpoint;
+        self.checkpoint = get_time_ms();
+        self.checkpoint - prev_point
+    }
+}
+
 
 lazy_static! {
     /// a `TaskManager` global instance through lazy_static!
@@ -65,6 +81,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    checkpoint: 0,
                 })
             },
         }
@@ -80,10 +97,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
-        if next_task.start_time.is_none() {
-            next_task.start_time = Some(get_time_us());
-        }
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
+        inner.update_checkpoint();
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -93,28 +108,12 @@ impl TaskManager {
         panic!("unreachable in run_first_task!");
     }
 
-    /// Get current task
-    pub fn get_current_task(&self) -> TaskControlBlock {
-        let inner = self.inner.exclusive_access();
-        let current = inner.current_task;
-        inner.tasks[current].clone() // 返回当前任务的克隆
-    }
-
-    ///update syscall times += 1
-    pub fn update_syscall_times(&self, syscall_id: usize) {
-        if syscall_id >= MAX_SYSCALL_NUM {
-            return;
-        }
-        let mut inner = self.inner.exclusive_access();
-        let current = inner.current_task;
-        inner.tasks[current].syscall_times[syscall_id] += 1;
-    }
-
     /// Change the status of current `Running` task into `Ready`.
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
         inner.tasks[cur].task_status = TaskStatus::Ready;
+        inner.tasks[cur].kernel_time += inner.update_checkpoint();//当任务从running转换成ready时，即从内核态转换成用户态，此时记录一下新的kernel time。
     }
 
     /// Change the status of current `Running` task into `Exited`.
@@ -122,6 +121,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
         inner.tasks[cur].task_status = TaskStatus::Exited;
+        inner.tasks[cur].kernel_time += inner.update_checkpoint();
     }
 
     /// Find next task to run and return task id.
@@ -161,9 +161,6 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
-            if inner.tasks[next].start_time.is_none() {
-                inner.tasks[next].start_time = Some(get_time_us());
-            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -177,23 +174,27 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    //* ch3-pro2 start
+    /// record the kernel time, now start to record the user time
+    pub fn user_time_start(&self) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].kernel_time += inner.update_checkpoint();
+    }
+
+    /// record the user time, now start to record the kernel time
+    pub fn user_time_end(&self) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].user_time += inner.update_checkpoint();
+    }
+    //* ch3-pro2 end
 }
 
 /// Run the first task in task list.
 pub fn run_first_task() {
     TASK_MANAGER.run_first_task();
-}
-
-
-/// Get current task
-pub fn get_current_task() {
-    TASK_MANAGER.get_current_task();
-}
-
-
-/// Update syscall times
-pub fn update_syscall_times(syscall_id:usize) {
-    TASK_MANAGER.update_syscall_times(syscall_id);
 }
 
 /// Switch current `Running` task to the task we have found,
@@ -238,3 +239,80 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
 }
+
+///---------------------------------------My fn--------------------------------------///
+
+//* ch3-pro2
+/// Get user time start
+pub fn user_time_start() {
+    TASK_MANAGER.user_time_start();
+}
+
+/// Get user time end
+pub fn user_time_end() {
+    TASK_MANAGER.user_time_end();
+}
+
+/// Get sys call times
+pub fn get_syscall_times() -> [u32; MAX_SYSCALL_NUM]{
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    inner.tasks.get(current_task).unwrap().syscall_times
+}
+
+/// Update syscall time
+pub fn update_syscall_times(syscall_id:usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].syscall_times[syscall_id] += 1;
+}
+
+/// Get task status
+pub fn get_current_status() -> TaskStatus{
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    inner.tasks.get(current_task).unwrap().task_status
+}
+
+/// Get start time
+pub fn get_start_time() -> usize{
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    let task_block = inner.tasks.get(current).unwrap();
+    task_block.kernel_time + task_block.user_time
+}
+
+/// Get page table
+pub fn get_current_task_page_table(vpn: VirtPageNum) -> Option<PageTableEntry>{
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].memory_set.translate(vpn)
+}
+
+/// Unmap [start, start + len)
+pub fn unmap_consecutive_area(start: usize, len: usize) -> isize{
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    let start_vpn = VirtAddr::from(start).floor();
+    let end_vpn = VirtAddr::from(start + len).ceil();
+    let vpns = VPNRange::new(start_vpn, end_vpn);
+    for vpn in vpns {
+        if let Some(pte) = get_current_task_page_table(vpn) {
+            if !pte.is_valid() {
+                return -1;
+            }
+            inner.tasks[current].memory_set.get_page_table().unmap(vpn);
+        } else {
+            return -1;
+        }
+    }
+    0
+}
+
+///调用insert_framed_area来创建新的map
+pub fn create_new_map_area(start_vpn: VirtAddr, end_vpn: VirtAddr, per: MapPermission) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].memory_set.insert_framed_area(start_vpn, end_vpn, per);
+}
+

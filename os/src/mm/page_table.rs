@@ -68,6 +68,7 @@ impl PageTableEntry {
 }
 
 /// page table structure
+/// 因为Page Table实际上也是存储在物理内存上的，所以每个 Page Table 都需要向 frame allocator 先申请一个物理页帧将其 PPN 作为 root_ppn 唯一标识。
 pub struct PageTable {
     root_ppn: PhysPageNum,//根物理页号
     frames: Vec<FrameTracker>,//FrameTracker 类型的向量，用于追踪分配的物理内存页

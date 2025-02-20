@@ -10,6 +10,7 @@ use crate::config::{
 };
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
+use core::borrow::BorrowMut;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::arch::asm;
@@ -231,6 +232,7 @@ impl MemorySet {
         }
     }
     /// Translate a virtual page number to a page table entry
+    /// 将vpn翻译到pte
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
@@ -262,6 +264,11 @@ impl MemorySet {
         } else {
             false
         }
+    }
+
+    /// Get page table
+    pub fn get_page_table(&mut self) -> &mut PageTable {
+        self.page_table.borrow_mut()
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory
@@ -335,6 +342,9 @@ impl MapArea {
         }
         self.vpn_range = VPNRange::new(self.vpn_range.get_start(), new_end);
     }
+
+
+
     /// data: start-aligned but maybe with shorter length
     /// assume that all frames were cleared before
     pub fn copy_data(&mut self, page_table: &mut PageTable, data: &[u8]) {
