@@ -37,12 +37,12 @@ impl Processor {
 
     ///Get current task in moving semanteme
     pub fn take_current(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.current.take()
+        self.current.take()//取出当前任务
     }
 
     ///Get current task in cloning semanteme
     pub fn current(&self) -> Option<Arc<TaskControlBlock>> {
-        self.current.as_ref().map(Arc::clone)
+        self.current.as_ref().map(Arc::clone)//获得当前任务的拷贝
     }
 }
 
@@ -55,11 +55,12 @@ lazy_static! {
 pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
+        //取出task queue最前面的任务
         if let Some(task) = fetch_task() {
-            let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
+            let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();//获得处理器当前idle task 的 context的指针
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
-            let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
+            let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;//获取下一个要处理任务的 context 指针
             task_inner.task_status = TaskStatus::Running;
             // release coming task_inner manually
             drop(task_inner);
@@ -68,7 +69,7 @@ pub fn run_tasks() {
             // release processor manually
             drop(processor);
             unsafe {
-                __switch(idle_task_cx_ptr, next_task_cx_ptr);
+                __switch(idle_task_cx_ptr, next_task_cx_ptr);//将下一个要处理任务的context指针赋给idle task context指针，即接下来要处理的是它了。
             }
         } else {
             warn!("no tasks available in run_tasks");
@@ -106,6 +107,6 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
     drop(processor);
     unsafe {
-        __switch(switched_task_cx_ptr, idle_task_cx_ptr);
+        __switch(switched_task_cx_ptr, idle_task_cx_ptr);//把processer保存的idle task的context指针赋给switch task。
     }
 }

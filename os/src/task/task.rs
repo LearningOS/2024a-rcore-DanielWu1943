@@ -1,14 +1,14 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{MAX_SYSCALL_NUM, TRAP_CONTEXT_BASE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
-
+use crate::timer::get_time_ms;
 /// Task control block structure
 ///
 /// Directly save the contents that will not change during running
@@ -21,7 +21,7 @@ pub struct TaskControlBlock {
     pub kernel_stack: KernelStack,
 
     /// Mutable
-    inner: UPSafeCell<TaskControlBlockInner>,
+    pub inner: UPSafeCell<TaskControlBlockInner>,
 }
 
 impl TaskControlBlock {
@@ -36,6 +36,7 @@ impl TaskControlBlock {
     }
 }
 
+///
 pub struct TaskControlBlockInner {
     /// The physical page number of the frame where the trap context is placed
     pub trap_cx_ppn: PhysPageNum,
@@ -68,6 +69,24 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Stride
+    pub stride: u64,
+    
+    /// Priority
+    pub priority: u64,
+
+    /// Syscall times
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+
+    /// kernel time
+    pub kernel_time: usize,
+
+    /// user time
+    pub user_time: usize,
+
+    /// checkpoint used to check time
+    pub checkpoint: usize,
 }
 
 impl TaskControlBlockInner {
@@ -79,11 +98,25 @@ impl TaskControlBlockInner {
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
-    fn get_status(&self) -> TaskStatus {
+
+    ///
+    pub fn get_status(&self) -> TaskStatus {
         self.task_status
     }
+    ///
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
+    }
+    ///
+    pub fn set_priority(&mut self, prio: u64) {
+        self.priority = prio;
+    }
+
+    /// update checkpoint and return the diff time
+    pub fn update_checkpoint(&mut self) -> usize {
+        let prev_point = self.checkpoint;
+        self.checkpoint = get_time_ms();
+        return self.checkpoint - prev_point;
     }
 }
 
@@ -118,6 +151,12 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: 0,
+                    priority: 16,
+                    syscall_times: [0; MAX_SYSCALL_NUM],
+                    kernel_time: 0,
+                    user_time: 0,
+                    checkpoint: get_time_ms(),
                 })
             },
         };
@@ -136,7 +175,7 @@ impl TaskControlBlock {
     /// Load a new elf to replace the original application address space and start execution
     pub fn exec(&self, elf_data: &[u8]) {
         // memory_set with elf program headers/trampoline/trap context/user stack
-        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);//解析传入的 ELF 数据，将其转化为一个新的内存集
         let trap_cx_ppn = memory_set
             .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
             .unwrap()
@@ -191,6 +230,12 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: 0,
+                    priority: 16,
+                    syscall_times: [0; MAX_SYSCALL_NUM],
+                    kernel_time: 0,
+                    user_time: 0,
+                    checkpoint: get_time_ms(),
                 })
             },
         });

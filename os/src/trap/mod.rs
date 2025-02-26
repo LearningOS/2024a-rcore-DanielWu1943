@@ -17,7 +17,7 @@ mod context;
 use crate::config::{TRAMPOLINE, TRAP_CONTEXT_BASE};
 use crate::syscall::syscall;
 use crate::task::{
-    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
+    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, update_task_syscall_times,
 };
 use crate::timer::set_next_trigger;
 use core::arch::{asm, global_asm};
@@ -66,6 +66,7 @@ pub fn trap_handler() -> ! {
             let mut cx = current_trap_cx();
             cx.sepc += 4;
             // get system call return value
+            update_task_syscall_times(cx.x[17]);
             let result = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]);
             // cx is changed during sys_exec, so we have to call it again
             cx = current_trap_cx();
@@ -91,7 +92,7 @@ pub fn trap_handler() -> ! {
             // illegal instruction exit code
             exit_current_and_run_next(-3);
         }
-        Trap::Interrupt(Interrupt::SupervisorTimer) => {
+        Trap::Interrupt(Interrupt::SupervisorTimer) => {//在这里计时器每个时间片
             set_next_trigger();
             suspend_current_and_run_next();
         }

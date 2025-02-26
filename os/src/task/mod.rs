@@ -21,12 +21,15 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::loader::get_app_data_by_name;
+use crate::{config::MAX_SYSCALL_NUM, loader::get_app_data_by_name};
 use alloc::sync::Arc;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
+//use riscv::paging::PageTableEntryX64Printer;
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskStatus, TaskControlBlockInner};
+
+use crate::mm::{VirtAddr, VirtPageNum, VPNRange, MapPermission, PageTableEntry};
 
 pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
@@ -45,6 +48,7 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    task_inner.kernel_time += task_inner.update_checkpoint();
     drop(task_inner);
     // ---- release current PCB
 
@@ -92,6 +96,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     inner.children.clear();
     // deallocate user space
     inner.memory_set.recycle_data_pages();
+    inner.kernel_time += inner.update_checkpoint();
     drop(inner);
     // **** release current PCB
     // drop task manually to maintain rc correctly
@@ -114,4 +119,83 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+/// VPN -> PageTableEntry (by memory_set.translate)
+pub fn get_current_task_page_table(vpn: VirtPageNum) -> Option<PageTableEntry>{
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    inner.memory_set.translate(vpn)
+}
+
+/// Get task status
+pub fn get_current_task_status() -> TaskStatus {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    inner.get_status()
+}
+
+/// Get syscall times
+pub fn get_current_task_syscall_times() -> [u32; MAX_SYSCALL_NUM]{
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    inner.syscall_times
+}
+
+/// Get time cost
+pub fn get_current_task_time_cost() -> usize {
+    let task = current_task().unwrap();
+    let task_inner = task.inner_exclusive_access();
+    task_inner.user_time + task_inner.kernel_time
+}
+
+/// Update syscall times
+pub fn update_task_syscall_times(syscall_id: usize) {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.syscall_times[syscall_id] += 1;
+}
+
+/// Unmap from [start, start + len)
+pub fn unmap_consecutive_area(start: usize, len: usize) -> isize {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    let start_vpn = VirtAddr::from(start).floor();
+    let end_vpn = VirtAddr::from(start + len).ceil();
+    let vpns = VPNRange::new(start_vpn, end_vpn);
+    for vpn in vpns {
+        if let Some(pte) = task_inner.memory_set.translate(vpn) {
+            if !pte.is_valid() {
+                return -1;
+            }
+            task_inner.memory_set.get_page_table().unmap(vpn);
+        } else {
+            // Also unmapped if no PTE found
+            return -1;
+        }
+    }
+    0
+}
+
+/// Map from [start_va, end_va) with perm
+pub fn create_new_map_area(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.memory_set.insert_framed_area(start_va, end_va, perm);
+}
+
+
+/// ch3. pro
+///
+pub fn user_time_start() {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.kernel_time += task_inner.update_checkpoint();
+}
+
+///
+pub fn user_time_end() {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.user_time += task_inner.update_checkpoint();
 }

@@ -184,18 +184,20 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
 }
 
 /// Translate&Copy a ptr[u8] array end with `\0` to a `String` Vec through page table
+/// 使用token创建page table，对page table对应的字符串
+/// 将 虚拟地址 指向的内存内容转换为一个 字符串。从ptr开始逐个读取字符串。
 pub fn translated_str(token: usize, ptr: *const u8) -> String {
     let page_table = PageTable::from_token(token);
     let mut string = String::new();
-    let mut va = ptr as usize;
+    let mut va = ptr as usize;//从ptr开始逐个读取，将va通过page_table.translate_va(VirtAddr::from(va))转换成物理地址，获得va对应物理地址的数据。
     loop {
         let ch: u8 = *(page_table
             .translate_va(VirtAddr::from(va))
             .unwrap()
             .get_mut());
-        if ch == 0 {
+        if ch == 0 {//如果读取的字节 ch 是 0，表示已经到达字符串的结束符，跳出循环
             break;
-        } else {
+        } else {//如果不是 0，将读取到的字节 ch 转换为字符并追加到 string 中，虚拟地址va += 1
             string.push(ch as char);
             va += 1;
         }
