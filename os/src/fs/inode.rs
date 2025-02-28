@@ -54,6 +54,7 @@ impl OSInode {
     }
 }
 
+//ROOT_INODE 是文件系统的根目录索引节点，整个内核共享的全局唯一的根目录索引节点lazy_static!是全局的静态变量
 lazy_static! {
     pub static ref ROOT_INODE: Arc<Inode> = {
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());

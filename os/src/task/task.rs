@@ -64,8 +64,11 @@ pub struct TaskControlBlockInner {
 
     /// It is set when active exit or execution error occurs
     pub exit_code: i32,
+    ///Vec 的动态长度特性使得我们无需设置一个固定的文件描述符数量上限
+    /// Option 使得我们可以区分一个文件描述符当前是否空闲，当它是 None 的时候是空闲的，而 Some 则代表它已被占用
+    /// Arc 首先提供了共享引用能力。后面我们会提到，可能会有多个进程共享同一个文件对它进行读写。此外被它包裹的内容会被放到内核堆而不是栈上，于是它便不需要在编译期有着确定的大小
+    /// dyn 关键字表明 Arc 里面的类型实现了 File/Send/Sync 三个 Trait
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
-
     /// Heap bottom
     pub heap_bottom: usize,
 

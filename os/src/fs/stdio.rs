@@ -23,11 +23,12 @@ impl File for Stdin {
         let mut c: usize;
         loop {
             c = console_getchar();
+            // 没有字符可读就到下一个任务了
             if c == 0 {
                 suspend_current_and_run_next();
                 continue;
             } else {
-                break;
+                break;//读到字符了就break了
             }
         }
         let ch = c as u8;
